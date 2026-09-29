@@ -24,3 +24,23 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  background: #0f172a;
+}
+
+.leaflet-container img {
+  max-width: none !important;
+}
+
+.leaflet-tile {
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.leaflet-control {
+  z-index: 10;
+}
