@@ -1,5 +1,6 @@
+
 const API_BASE_URL =
-    process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
+    process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 export interface AnalysisRequest {
     west: number;
@@ -11,40 +12,63 @@ export interface AnalysisRequest {
     after_start: string;
     after_end: string;
     language?: "en" | "hi";
+    max_cloud_pct?: number;
+}
+
+export interface AnalysisPeriod {
+    mean_ndvi: number | null;
+    scenes?: number;
+    scene_count?: number;
+
+    // Valid-pixel coverage metrics returned by FastAPI.
+    valid_pixel_count?: number;
+    total_pixel_count?: number;
+    coverage_percent?: number;
+    coverage_warning?: string | null;
+}
+
+export interface AnalysisReport {
+    report_title?: string;
+    generated_at?: string;
+    risk_level?: string;
+    technical_summary?: string;
+    simple_summary?: string;
+    recommendations?: string[];
 }
 
 export interface AnalysisData {
-    before: {
-        mean_ndvi: number | null;
-        scene_count: number;
-    };
-    after: {
-        mean_ndvi: number | null;
-        scene_count: number;
-    };
+    before: AnalysisPeriod;
+    after: AnalysisPeriod;
     change_percent: number | null;
     classification: string;
-    report: {
-        report_title: string;
-        generated_at: string;
-        risk_level: string;
-        technical_summary: string;
-        simple_summary: string;
-        recommendations: string[];
-    };
+    report?: AnalysisReport | null;
     note: string | null;
+
+    // Coverage configuration and warnings from the backend.
+    max_cloud_pct?: number;
+    coverage_warning_threshold?: number;
+    coverage_warnings?: string[];
 }
 
-export interface AnalysisResponse {
-    analysis: AnalysisData;
-}
+export type AnalysisResponse = AnalysisData;
 
 async function handleResponse<T>(
     response: Response
 ): Promise<T> {
     if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || "Request failed");
+        let message = "Request failed";
+
+        try {
+            const errorData = await response.json();
+            message =
+                typeof errorData.detail === "string"
+                    ? errorData.detail
+                    : JSON.stringify(errorData);
+        } catch {
+            message = await response.text().catch(() => message);
+        }
+
+        throw new Error(message || "Request failed");
     }
 
     return response.json() as Promise<T>;
@@ -82,7 +106,19 @@ export async function downloadPdf(
     );
 
     if (!response.ok) {
-        throw new Error("Failed to generate PDF");
+        let message = "Failed to generate PDF";
+
+        try {
+            const errorData = await response.json();
+            message =
+                typeof errorData.detail === "string"
+                    ? errorData.detail
+                    : JSON.stringify(errorData);
+        } catch {
+            message = await response.text().catch(() => message);
+        }
+
+        throw new Error(message || "Failed to generate PDF");
     }
 
     return response.blob();
