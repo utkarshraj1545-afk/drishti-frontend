@@ -36,6 +36,18 @@ export interface AnalysisReport {
     recommendations?: string[];
 }
 
+export interface WaterPeriod {
+    water_area_km2: number | null;
+    valid_area_km2: number | null;
+    water_percent_valid: number | null;
+}
+
+export interface WaterAnalysis {
+    before: WaterPeriod | null;
+    after: WaterPeriod | null;
+    note: string;
+}
+
 export interface AnalysisData {
     before: AnalysisPeriod;
     after: AnalysisPeriod;
@@ -48,6 +60,9 @@ export interface AnalysisData {
     max_cloud_pct?: number;
     coverage_warning_threshold?: number;
     coverage_warnings?: string[];
+
+    // MNDWI-based estimated water extent.
+    water?: WaterAnalysis | null;
 }
 
 export type AnalysisResponse = AnalysisData;

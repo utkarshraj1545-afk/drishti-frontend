@@ -167,6 +167,10 @@ export default function AnalysisForm({
             setError(null);
 
             const result = await analyzeArea(request);
+            console.log("[DRISHTI] API result:", result);
+            console.log("[DRISHTI] Response keys:", Object.keys(result));
+            console.log("[DRISHTI] Water data:", result.water);
+
             onResult(result, request);
         } catch (err) {
             setError(
