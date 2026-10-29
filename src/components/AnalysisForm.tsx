@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -16,6 +17,7 @@ interface AnalysisFormProps {
         request: AnalysisRequest,
     ) => void;
     aoi: BoundingBox | null;
+    locationName?: string | null;
 }
 
 interface FormData {
@@ -45,6 +47,7 @@ const INITIAL_FORM: FormData = {
 export default function AnalysisForm({
     onResult,
     aoi,
+    locationName,
 }: AnalysisFormProps) {
     const [form, setForm] = useState<FormData>(INITIAL_FORM);
     const [loading, setLoading] = useState(false);
@@ -160,6 +163,9 @@ export default function AnalysisForm({
             after_start: form.afterStart,
             after_end: form.afterEnd,
             language: form.language,
+            ...(locationName?.trim()
+                ? { location_name: locationName.trim() }
+                : {}),
         };
 
         try {
@@ -167,9 +173,10 @@ export default function AnalysisForm({
             setError(null);
 
             const result = await analyzeArea(request);
-            console.log("[DRISHTI] API result:", result);
-            console.log("[DRISHTI] Response keys:", Object.keys(result));
-            console.log("[DRISHTI] Water data:", result.water);
+
+            console.log("[PRAKRITI] API result:", result);
+            console.log("[PRAKRITI] Water data:", result.water);
+            console.log("[PRAKRITI] Report location:", request.location_name);
 
             onResult(result, request);
         } catch (err) {
@@ -325,6 +332,11 @@ export default function AnalysisForm({
                         <p className="mt-1 text-xs text-blue-400">
                             Coordinates were populated from the satellite map.
                         </p>
+                        {locationName && (
+                            <p className="mt-2 text-xs text-blue-200">
+                                Location: {locationName}
+                            </p>
+                        )}
                     </div>
                 )}
 

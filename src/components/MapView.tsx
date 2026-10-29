@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
     MapContainer,
     TileLayer,
@@ -21,13 +21,31 @@ const LABELS_TILE_URL =
 
 const INDIA_CENTER: [number, number] = [22.9734, 78.6569];
 
+const TULAS_INSTITUTE: PlaceResult = {
+    place_id: -1,
+    display_name:
+        "Tula's Institute, Dhoolkot, Selaqui, Dehradun, Uttarakhand, India",
+    lat: "30.34214",
+    lon: "77.88561",
+    type: "college",
+};
+
 interface MapViewProps {
     onAOIChange?: (aoi: BoundingBox | null) => void;
+    onPlaceNameChange?: (name: string | null) => void;
 }
 
 interface DrawControllerProps {
     enabled: boolean;
     onComplete: (aoi: BoundingBox) => void;
+}
+
+interface PlaceResult {
+    place_id: number;
+    display_name: string;
+    lat: string;
+    lon: string;
+    type?: string;
 }
 
 function MapResizeHandler() {
@@ -54,6 +72,7 @@ function DrawController({
     onComplete,
 }: DrawControllerProps) {
     const startPoint = useRef<LatLng | null>(null);
+
     const [bounds, setBounds] = useState<
         [[number, number], [number, number]] | null
     >(null);
@@ -109,81 +128,274 @@ function DrawController({
     return bounds ? <Rectangle bounds={bounds} /> : null;
 }
 
-function CoordinateNavigator() {
-    const map = useMap();
-    const [coordinates, setCoordinates] = useState("");
-    const [error, setError] = useState("");
+interface PlaceSearchProps {
+    onPlaceNameChange?: (name: string | null) => void;
+}
 
-    function goToCoordinates(event: React.FormEvent<HTMLFormElement>) {
+function PlaceSearch({ onPlaceNameChange }: PlaceSearchProps) {
+    const map = useMap();
+
+    const [query, setQuery] = useState("");
+    const [results, setResults] = useState<PlaceResult[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [showResults, setShowResults] = useState(false);
+
+    const requestId = useRef(0);
+    const abortController = useRef<AbortController | null>(null);
+
+    useEffect(() => {
+        return () => abortController.current?.abort();
+    }, []);
+
+    async function searchPlace(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
 
-        const parts = coordinates.split(",").map((part) => part.trim());
-        const lat = Number(parts[0]);
-        const lng = Number(parts[1]);
+        const place = query.trim();
 
-        if (
-            parts.length !== 2 ||
-            parts[0] === "" ||
-            parts[1] === "" ||
-            !Number.isFinite(lat) ||
-            !Number.isFinite(lng) ||
-            lat < -90 ||
-            lat > 90 ||
-            lng < -180 ||
-            lng > 180
-        ) {
-            setError("Enter coordinates as latitude, longitude.");
+        if (!place) {
+            setError("Enter a place name to search.");
+            setResults([]);
+            setShowResults(false);
             return;
         }
 
+        const currentRequest = ++requestId.current;
+        abortController.current?.abort();
+
+        const controller = new AbortController();
+        abortController.current = controller;
+
+        setLoading(false);
         setError("");
-        map.flyTo([lat, lng], 11, { duration: 1.2 });
+        setResults([]);
+        setShowResults(false);
+
+        // Do not keep a previously selected name for a new search.
+        onPlaceNameChange?.(null);
+
+        const isTulasSearch =
+            /tula'?s?\s*institute/i.test(place) ||
+            /\btulas\b/i.test(place);
+
+        if (isTulasSearch) {
+            setResults([{ ...TULAS_INSTITUTE }]);
+            setShowResults(true);
+            return;
+        }
+
+        setLoading(true);
+
+        const parts = place
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean);
+
+        const candidates = [
+            place,
+            ...(parts.length >= 3
+                ? [`${parts.slice(0, 2).join(", ")}, India`]
+                : []),
+            ...(parts.length >= 2
+                ? [`${parts[0]}, ${parts[1]}, India`]
+                : [`${place}, India`]),
+        ].filter((value, index, all) => all.indexOf(value) === index);
+
+        try {
+            let matches: PlaceResult[] = [];
+
+            for (let i = 0; i < candidates.length; i++) {
+                if (
+                    controller.signal.aborted ||
+                    currentRequest !== requestId.current
+                ) {
+                    return;
+                }
+
+                if (i > 0) {
+                    await new Promise<void>((resolve) => {
+                        window.setTimeout(resolve, 1100);
+                    });
+                }
+
+                if (
+                    controller.signal.aborted ||
+                    currentRequest !== requestId.current
+                ) {
+                    return;
+                }
+
+                const params = new URLSearchParams({
+                    format: "jsonv2",
+                    q: candidates[i],
+                    countrycodes: "in",
+                    "accept-language": "en",
+                    limit: "5",
+                });
+
+                const response = await fetch(
+                    `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+                    { signal: controller.signal }
+                );
+
+                if (!response.ok) {
+                    throw new Error(
+                        "Location search is temporarily unavailable. Please try again."
+                    );
+                }
+
+                matches = (await response.json()) as PlaceResult[];
+
+                if (matches.length > 0) break;
+            }
+
+            if (
+                controller.signal.aborted ||
+                currentRequest !== requestId.current
+            ) {
+                return;
+            }
+
+            if (matches.length === 0) {
+                setError(
+                    `No match found for "${place}". Try adding the city or state.`
+                );
+                return;
+            }
+
+            setResults(matches);
+            setShowResults(true);
+        } catch (err) {
+            if (controller.signal.aborted) return;
+            if (currentRequest !== requestId.current) return;
+
+            setError(
+                err instanceof Error
+                    ? err.message
+                    : "Unable to search for this location."
+            );
+        } finally {
+            if (currentRequest === requestId.current) {
+                setLoading(false);
+            }
+        }
+    }
+
+    function selectPlace(place: PlaceResult) {
+        const lat = Number(place.lat);
+        const lon = Number(place.lon);
+
+        if (
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lon) ||
+            lat < -90 ||
+            lat > 90 ||
+            lon < -180 ||
+            lon > 180
+        ) {
+            setError("The selected location has invalid coordinates.");
+            return;
+        }
+
+        map.flyTo([lat, lon], 16, { duration: 1.5 });
+
+        setQuery(place.display_name);
+        setResults([]);
+        setShowResults(false);
+        setError("");
+
+        // Pass the actual selected search result to the parent.
+        onPlaceNameChange?.(place.display_name);
     }
 
     return (
-        <form
-            onSubmit={goToCoordinates}
-            className="absolute left-4 top-[4.25rem] z-[1000] w-[min(320px,calc(100%-2rem))] rounded-xl border border-slate-700 bg-slate-950/95 p-3 shadow-xl backdrop-blur"
-        >
-            <label
-                htmlFor="map-coordinates"
-                className="mb-2 block text-xs font-medium text-slate-300"
-            >
-                Go to coordinates
-            </label>
-
-            <div className="flex gap-2">
-                <input
-                    id="map-coordinates"
-                    value={coordinates}
-                    onChange={(event) => setCoordinates(event.target.value)}
-                    placeholder="27.7172, 85.3240"
-                    className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
-                    aria-describedby="coordinate-help"
-                />
-
-                <button
-                    type="submit"
-                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500"
+        <div className="absolute left-4 top-[4.25rem] z-[1000] w-[min(340px,calc(100%-2rem))] rounded-xl border border-slate-700 bg-slate-950/95 p-3 shadow-xl backdrop-blur">
+            <form onSubmit={searchPlace}>
+                <label
+                    htmlFor="map-place-search"
+                    className="mb-2 block text-xs font-medium text-slate-300"
                 >
-                    Go
-                </button>
-            </div>
+                    Search an area
+                </label>
 
-            <p id="coordinate-help" className="mt-2 text-xs text-slate-400">
-                Example: Kathmandu, Nepal
+                <div className="flex gap-2">
+                    <input
+                        id="map-place-search"
+                        type="text"
+                        value={query}
+                        onChange={(event) => {
+                            setQuery(event.target.value);
+                            setError("");
+                            setResults([]);
+                            setShowResults(false);
+                            onPlaceNameChange?.(null);
+                        }}
+                        placeholder="e.g. Tulas Institute, Dehradun"
+                        className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
+                        aria-label="Search for a place"
+                        aria-describedby="place-search-help"
+                    />
+
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {loading ? "Searching..." : "Search"}
+                    </button>
+                </div>
+            </form>
+
+            <p
+                id="place-search-help"
+                className="mt-2 text-xs text-slate-400"
+            >
+                Search for a place, landmark, city, or institution.
             </p>
+
+            {loading && (
+                <p role="status" className="mt-2 text-xs text-blue-300">
+                    Finding locations...
+                </p>
+            )}
 
             {error && (
                 <p role="alert" className="mt-2 text-xs text-red-300">
                     {error}
                 </p>
             )}
-        </form>
+
+            {showResults && results.length > 0 && (
+                <div className="mt-3 max-h-52 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900">
+                    <p className="px-3 py-2 text-xs font-medium text-slate-400">
+                        Select the correct location
+                    </p>
+
+                    {results.map((place) => (
+                        <button
+                            key={place.place_id}
+                            type="button"
+                            onClick={() => selectPlace(place)}
+                            className="flex w-full items-start gap-2 border-t border-slate-800 px-3 py-2.5 text-left text-xs text-slate-200 transition hover:bg-slate-800"
+                        >
+                            <span className="mt-0.5 shrink-0 text-blue-400">
+                                📍
+                            </span>
+                            <span className="min-w-0 break-words">
+                                {place.display_name}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 
-export default function MapView({ onAOIChange }: MapViewProps) {
+export default function MapView({
+    onAOIChange,
+    onPlaceNameChange,
+}: MapViewProps) {
     const [drawing, setDrawing] = useState(false);
     const [aoi, setAOI] = useState<BoundingBox | null>(null);
 
@@ -228,7 +440,7 @@ export default function MapView({ onAOIChange }: MapViewProps) {
                     opacity={1}
                 />
 
-                <CoordinateNavigator />
+                <PlaceSearch onPlaceNameChange={onPlaceNameChange} />
 
                 <DrawController
                     enabled={drawing}

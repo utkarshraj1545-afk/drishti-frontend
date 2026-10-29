@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import DynamicMap from "@/components/DynamicMap";
 import AnalysisForm from "@/components/AnalysisForm";
+import NDVITrendPanel from "@/components/NDVITrendPanel";
 import ResultsPanel from "@/components/ResultsPanel";
 
 import type {
@@ -15,6 +16,8 @@ import type { BoundingBox } from "@/types/map";
 
 export default function HomePage() {
   const [aoi, setAOI] = useState<BoundingBox | null>(null);
+  const [placeName, setPlaceName] = useState<string | null>(null);
+
   const [result, setResult] = useState<AnalysisResponse | null>(null);
   const [analysisRequest, setAnalysisRequest] =
     useState<AnalysisRequest | null>(null);
@@ -42,6 +45,9 @@ export default function HomePage() {
             <a href="#analysis" className="hover:text-white">
               Analysis
             </a>
+            <a href="#trends" className="hover:text-white">
+              Vegetation Trends
+            </a>
             <a href="#reports" className="hover:text-white">
               Reports
             </a>
@@ -67,8 +73,7 @@ export default function HomePage() {
           <p className="mt-6 text-lg text-slate-400">
             Analyze vegetation health, monitor environmental changes,
             and generate reports from satellite imagery. Explore
-            selected locations on the map and compare NDVI across
-            different time periods.
+            selected locations on the map and compare NDVI over time.
           </p>
         </div>
       </section>
@@ -110,14 +115,30 @@ export default function HomePage() {
               </h2>
 
               <div className="h-[550px] w-full overflow-hidden rounded-xl">
-                <DynamicMap onAOIChange={setAOI} />
+                <DynamicMap
+                  onAOIChange={setAOI}
+                  onPlaceNameChange={setPlaceName}
+                />
               </div>
+
+              {placeName && (
+                <p className="mt-3 text-sm text-slate-300">
+                  Selected location:{" "}
+                  <span className="font-medium text-emerald-400">
+                    {placeName}
+                  </span>
+                </p>
+              )}
             </div>
           </div>
 
           <div className="lg:col-span-2">
+            <p className="text-xs text-yellow-300">
+              Debug location: {placeName ?? "NULL"}
+            </p>
             <AnalysisForm
               aoi={aoi}
+              locationName={placeName}
               onResult={(analysisResult, request) => {
                 setResult(analysisResult);
                 setAnalysisRequest(request);
@@ -127,7 +148,16 @@ export default function HomePage() {
         </div>
       </section>
 
-      {result && (
+      {/* Historical NDVI graph */}
+      <section
+        id="trends"
+        className="mx-auto max-w-7xl px-6 pb-10"
+      >
+        <NDVITrendPanel aoi={aoi} />
+      </section>
+
+      {/* Original before/after report and PDF export */}
+      {result && analysisRequest && (
         <section
           id="reports"
           className="mx-auto max-w-7xl px-6 pb-16"
